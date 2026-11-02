@@ -10,7 +10,8 @@ from gradio.context import LocalContext
 from app.config import Settings
 from app.main import Service, create_app, on_cpu
 from app.pipelines import batch, quality
-from app.pipelines.explain import Explainer
+from app.pipelines import explain
+from app.pipelines.explain import BackupExplainer, BackupSegmenter, Explainer, OnDemand
 from app.pipelines.segment import Segmenter
 from app.pipelines.vision import DefectFinder, Recogniser
 
@@ -21,7 +22,9 @@ recogniser.encoder.to("cuda")
 finder = DefectFinder.load(settings)
 finder.network.to("cuda")
 local = Service(settings, recogniser, finder, bands, Explainer.load("cuda"), Segmenter.load("cuda"))
-cpu = Service(settings, Recogniser.load(settings), DefectFinder.load(settings), bands)
+backup_ai = BackupExplainer(OnDemand(lambda: Explainer.load("cpu", explain.CPU_MODEL, explain.CPU_SIDE)))
+backup_outline = BackupSegmenter(OnDemand(lambda: Segmenter.load("cpu")))
+cpu = Service(settings, Recogniser.load(settings), DefectFinder.load(settings), bands, backup_ai, backup_outline)
 log = logging.getLogger("visioninspect")
 
 

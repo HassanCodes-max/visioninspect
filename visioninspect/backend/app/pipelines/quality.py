@@ -35,16 +35,20 @@ def decide(score, supported, bands):
 # Share of the AI's answers that were right on 80 fresh photos (results/RESULTS_FRESH.md):
 # 23 of 24 "defect" answers and 39 of 56 "good" answers.
 AI_EVIDENCE = {REJECT: round(23 / 24, 3), PASS: round(39 / 56, 3)}
+# The same for the smaller backup AI on the CPU, from 60 fresh photos (results/RESULTS_BACKUP_AI.md).
+# Its "good" answers go to REVIEW, so only REJECT has a share.
+BACKUP_EVIDENCE = {REJECT: round(4 / 4, 3)}
 
 
-def decide_by_ai(explanation):
-    """For items without a trained model. A "good" answer passes, and the site shows how often that was right."""
+def decide_by_ai(explanation, backup=False):
+    """For items without a trained model. A "good" answer passes, and the site shows how often that was right.
+    The backup AI misses most defects, so its "good" answers wait for a person instead."""
     if explanation is None:
         return REVIEW, "not_supported"
     if explanation["verdict"] == "defect":
         return REJECT, "ai_defect"
     if explanation["verdict"] == "good":
-        return PASS, "ai_good"
+        return (REVIEW, "ai_backup_good") if backup else (PASS, "ai_good")
     return REVIEW, "ai_no_defect"
 
 

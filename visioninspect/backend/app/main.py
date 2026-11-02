@@ -56,7 +56,7 @@ class Service:
             match = self.recogniser.check(image)
             if not match.supported:
                 explanation = self.explainer.explain(image) if self.explainer else None
-                decision, reason = quality.decide_by_ai(explanation)
+                decision, reason = quality.decide_by_ai(explanation, getattr(self.explainer, "backup", False))
                 return self.result(decision, reason, match, None, explanation, self.outline(image, explanation))
             found = self.finder.inspect(image)
             decision, reason = quality.decide(found.score, True, self.bands)
@@ -106,12 +106,16 @@ class Service:
 
 
 def on_cpu(service, images, limit=batch.DEFAULT_LIMIT, stock=None):
-    """The check when the shared GPU refuses it. The trained model still decides listed products on the CPU;
-    other items need the GPU explainer, so they wait for it in REVIEW."""
+    """The check when the shared GPU refuses it. The trained model still decides listed products on the CPU,
+    and a smaller backup AI explains the first few flagged photos. Items it cannot reach wait in REVIEW."""
+    if hasattr(service.explainer, "start"):
+        service.explainer.start()
     answer = Service.inspect_many(service, images, None, limit, stock)
     for result in answer["results"]:
         if result["reason"] == "not_supported":
             result["reason"] = "ai_resting"
+        if result["reason"].startswith("ai_"):
+            result["tested_share"] = quality.BACKUP_EVIDENCE.get(result["decision"])
     answer["fallback"] = True
     return answer
 

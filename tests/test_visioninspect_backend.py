@@ -171,6 +171,36 @@ def test_api_refuses_a_large_file():
     assert post(TestClient(main.create_app(service, settings))).status_code == 413
 
 
+def test_backup_ai_explains_only_a_few_photos_per_batch():
+    helper = FakeExplainer("defect")
+    backup = explain.BackupExplainer(explain.OnDemand(lambda: helper), per_batch=2)
+    checker = main.Service(Settings(), FakeRecogniser(False), FakeFinder(0.9), BANDS, backup)
+    answer = main.on_cpu(checker, [Image.new("RGB", (64, 64))] * 3)
+    assert [r["reason"] for r in answer["results"]] == ["ai_defect", "ai_defect", "ai_resting"] and helper.calls == 2
+    assert answer["results"][0]["tested_share"] == quality.BACKUP_EVIDENCE.get(quality.REJECT)
+    main.on_cpu(checker, [Image.new("RGB", (64, 64))])
+    assert helper.calls == 3
+
+
+def test_backup_ai_good_answer_waits_for_a_person():
+    backup = explain.BackupExplainer(explain.OnDemand(lambda: FakeExplainer("good")))
+    checker = main.Service(Settings(), FakeRecogniser(False), FakeFinder(0.1), BANDS, backup)
+    answer = main.on_cpu(checker, [Image.new("RGB", (64, 64))])
+    result = answer["results"][0]
+    assert (result["decision"], result["reason"]) == (quality.REVIEW, "ai_backup_good")
+    assert answer["analysis"]["review"] == 1 and answer["analysis"]["passed"] == 0
+
+
+def test_backup_ai_that_cannot_load_leaves_the_check_working():
+    def broken():
+        raise MemoryError("no room")
+
+    backup = explain.BackupExplainer(explain.OnDemand(broken))
+    checker = main.Service(Settings(), FakeRecogniser(False), FakeFinder(0.9), BANDS, backup)
+    result = main.on_cpu(checker, [Image.new("RGB", (64, 64))])["results"][0]
+    assert (result["decision"], result["reason"]) == (quality.REVIEW, "ai_resting")
+
+
 def test_cpu_check_still_decides_listed_products():
     checker = main.Service(Settings(), FakeRecogniser(True), FakeFinder(0.9), BANDS)
     answer = main.on_cpu(checker, [Image.new("RGB", (64, 64))] * 2)

@@ -1,11 +1,18 @@
-"""An open vision language model that names the defect, says where it is and suggests a fix. Needs a GPU."""
+"""An open vision language model that names the defect, says where it is and suggests a fix.
+The 8B model runs on the GPU. A 2B model from the same family is the backup on the CPU."""
 import json
+import logging
+import os
 import re
 
 from . import batch
 
 MODEL = "Qwen/Qwen3-VL-8B-Instruct"
+CPU_MODEL = os.environ.get("VI_CPU_LLM", "Qwen/Qwen3-VL-2B-Instruct")
 LONGEST_SIDE = 1024
+CPU_SIDE = int(os.environ.get("VI_CPU_SIDE", "640"))
+CPU_PER_BATCH = int(os.environ.get("VI_CPU_PER_BATCH", "4"))
+log = logging.getLogger("visioninspect")
 MAX_TOKENS = 300
 TEXT_LIMIT = 240
 BOX_SCALE = 1000
@@ -66,21 +73,22 @@ def parse_reply(text):
 
 
 class Explainer:
-    def __init__(self, processor, model):
-        self.processor, self.model = processor, model
+    def __init__(self, processor, model, side=LONGEST_SIDE):
+        self.processor, self.model, self.side = processor, model, side
 
     @classmethod
-    def load(cls, device):
+    def load(cls, device, name=MODEL, side=LONGEST_SIDE):
         import torch
         from transformers import AutoModelForImageTextToText, AutoProcessor
-        model = AutoModelForImageTextToText.from_pretrained(MODEL, dtype=torch.bfloat16).to(device).eval()
-        return cls(AutoProcessor.from_pretrained(MODEL), model)
+        dtype = getattr(torch, os.environ.get("VI_CPU_DTYPE", "bfloat16")) if device == "cpu" else torch.bfloat16
+        model = AutoModelForImageTextToText.from_pretrained(name, dtype=dtype).to(device).eval()
+        return cls(AutoProcessor.from_pretrained(name), model, side)
 
     def explain(self, image, region=None, flagged=False):
         """region: where the trained model found the defect. flagged: the trained model is confident it is defective."""
         import torch
         small = image.copy()
-        small.thumbnail((LONGEST_SIDE, LONGEST_SIDE))
+        small.thumbnail((self.side, self.side))
         prompt = PROMPT + ((FLAGGED if flagged else HINT).format(box=to_box(region)) if region else "")
         messages = [{"role": "user", "content": [{"type": "image", "image": small}, {"type": "text", "text": prompt}]}]
         inputs = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=True, return_dict=True,
@@ -98,3 +106,53 @@ class Explainer:
         with torch.inference_mode():
             output = self.model.generate(**inputs, max_new_tokens=MAX_TOKENS, do_sample=False)
         return self.processor.decode(output[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
+
+
+class OnDemand:
+    """Loads a model the first time it is needed, so the backup costs nothing until it is used.
+    If loading fails, it stays off and the check carries on without it."""
+
+    def __init__(self, load):
+        self.load, self.model, self.failed = load, None, False
+
+    def get(self):
+        if self.model is None and not self.failed:
+            try:
+                self.model = self.load()
+            except Exception:
+                log.exception("backup model could not load")
+                self.failed = True
+        return self.model
+
+
+class BackupExplainer:
+    """The CPU explainer. It is slow, so each batch gets only a few explanations, in the order the photos were sent."""
+    backup = True
+
+    def __init__(self, source, per_batch=CPU_PER_BATCH):
+        self.source, self.per_batch, self.left = source, per_batch, per_batch
+
+    def start(self):
+        self.left = self.per_batch
+
+    def explain(self, image, region=None, flagged=False):
+        explainer = self.source.get()
+        if explainer is None or self.left <= 0:
+            return None
+        self.left -= 1
+        return explainer.explain(image, region, flagged)
+
+    def advise(self, facts):
+        explainer = self.source.get()
+        if explainer is None:
+            raise RuntimeError("backup explainer is off")
+        return explainer.advise(facts)
+
+
+class BackupSegmenter:
+    def __init__(self, source):
+        self.source = source
+
+    def outline(self, image, region):
+        segmenter = self.source.get()
+        return segmenter.outline(image, region) if segmenter else None
