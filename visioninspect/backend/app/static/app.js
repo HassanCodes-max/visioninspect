@@ -124,8 +124,9 @@ async function inspectAll(ready) {
   if (Number($("stock").value) > 0) form.append("stock", Math.round(Number($("stock").value)));
   const response = await fetch("/api/inspect-batch", { method: "POST", body: form, headers: await visitorPass() });
   if (!response.ok) throw new Error(ERRORS[response.status] || "failed");
-  const { results, analysis } = await response.json();
+  const { results, analysis, fallback } = await response.json();
   state.analysis = analysis;
+  state.fallback = Boolean(fallback);
   return results.map((result, index) => ({ ...result, name: ready[index].name, small: ready[index].small, aspect: ready[index].aspect }));
 }
 
@@ -135,7 +136,9 @@ function clearResults() {
   state.filter = "all";
   state.analysis = null;
   state.spot = null;
+  state.fallback = false;
   $("problem").hidden = true;
+  $("notice").hidden = true;
   renderResults();
 }
 
@@ -177,6 +180,7 @@ async function runPhotos(photos) {
     }
     stopScan();
     state.fresh = true;
+    $("notice").hidden = !state.fallback;
     renderResults();
     renderReport();
   } catch (error) {

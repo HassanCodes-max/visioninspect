@@ -2,13 +2,13 @@
 import spaces  # must be imported before torch
 
 import json
+import logging
 
 import gradio as gr
-from fastapi import HTTPException
 from gradio.context import LocalContext
 
 from app.config import Settings
-from app.main import Service, create_app
+from app.main import Service, create_app, on_cpu
 from app.pipelines import batch, quality
 from app.pipelines.explain import Explainer
 from app.pipelines.segment import Segmenter
@@ -21,6 +21,8 @@ recogniser.encoder.to("cuda")
 finder = DefectFinder.load(settings)
 finder.network.to("cuda")
 local = Service(settings, recogniser, finder, bands, Explainer.load("cuda"), Segmenter.load("cuda"))
+cpu = Service(settings, Recogniser.load(settings), DefectFinder.load(settings), bands)
+log = logging.getLogger("visioninspect")
 
 
 def seconds(images, limit, stock):
@@ -34,14 +36,14 @@ def check(images, limit, stock):
 
 class SharedGpuService(Service):
     def inspect_many(self, images, request=None, limit=batch.DEFAULT_LIMIT, stock=None):
-        """Passing the visitor's request lets ZeroGPU count this check against that visitor's daily allowance."""
+        """Passing the visitor's request lets ZeroGPU count this check against that visitor's daily allowance.
+        When the GPU refuses, usually because that allowance is used up, the check runs on the CPU instead of failing."""
         LocalContext.request.set(request)
         try:
             return check(images, limit, stock)
         except gr.Error as error:
-            if "quota" not in str(error.title).lower():
-                raise
-            raise HTTPException(429, "The free limit is used up for now.") from error
+            log.warning("GPU refused a check (%s), so it runs on the CPU", error.title)
+            return on_cpu(cpu, images, limit, stock)
 
     def inspect(self, image, request=None):
         return self.inspect_many([image], request)["results"][0]

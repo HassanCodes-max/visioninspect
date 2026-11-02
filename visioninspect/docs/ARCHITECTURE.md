@@ -95,7 +95,7 @@ Example batches are saved results in `static/samples/`, so they use no GPU.
 
 ## Hosting
 
-Free Hugging Face accounts cannot host Docker or CPU Spaces, so the site runs as a Gradio Space on ZeroGPU. The site's FastAPI routes are placed ahead of Gradio's, and Gradio's own page is turned off. Each batch asks for `8 + 3 × photos` seconds of GPU. Visitors who are not signed in were refused after about 3 GPU runs, so batches count as one run and the example buttons need none.
+Free Hugging Face accounts cannot host Docker or CPU Spaces, so the site runs as a Gradio Space on ZeroGPU. The site's FastAPI routes are placed ahead of Gradio's, and Gradio's own page is turned off. Each batch asks for `8 + 3 × photos` seconds of GPU. Visitors who are not signed in were refused after about 3 GPU runs, so batches count as one run and the example buttons need none. When the GPU refuses a check, `on_cpu` runs it on the Space's CPU with CPU copies of the recogniser and trained model. Listed products still get their decision, outline and size. Other items need the GPU explainer, so they go to REVIEW with the reason `ai_resting`, and the page shows a note instead of an error. On the live Space, one photo took 3.3 s and a batch of 10 took 7.6 s this way.
 
 `deploy_space.py` copies `backend/` to the Space and writes its requirements file.
 

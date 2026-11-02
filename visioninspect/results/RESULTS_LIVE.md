@@ -24,6 +24,8 @@ This confirms that the live site matches the measured model. The measured accura
 
 Guest use is limited by Hugging Face. One connection was refused after 3 GPU runs, much lower than the 2 minutes a day the documentation suggests. The server's message was "You have exceeded your ZeroGPU runs limit". When and how the limit resets was not measured.
 
+Since 2026-11-03, a refused check runs on the Space's CPU instead of failing. On the live Space a guest check took 3.3 s for one photo and 7.6 s for 10. Listed products keep full results; other items wait for the AI in REVIEW.
+
 To work within this:
 
 - The example buttons show saved results from real checks and use no GPU.

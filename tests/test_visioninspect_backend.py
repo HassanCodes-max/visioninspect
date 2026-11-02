@@ -171,6 +171,33 @@ def test_api_refuses_a_large_file():
     assert post(TestClient(main.create_app(service, settings))).status_code == 413
 
 
+def test_cpu_check_still_decides_listed_products():
+    checker = main.Service(Settings(), FakeRecogniser(True), FakeFinder(0.9), BANDS)
+    answer = main.on_cpu(checker, [Image.new("RGB", (64, 64))] * 2)
+    assert answer["fallback"] and [r["decision"] for r in answer["results"]] == [quality.REJECT] * 2
+    assert answer["results"][0]["outline"] is not None and answer["analysis"]["rejected"] == 2
+
+
+def test_cpu_check_tells_other_items_the_ai_is_resting():
+    checker = main.Service(Settings(), FakeRecogniser(False), FakeFinder(0.9), BANDS)
+    result = main.on_cpu(checker, [Image.new("RGB", (64, 64))])["results"][0]
+    assert (result["decision"], result["reason"]) == (quality.REVIEW, "ai_resting")
+
+
+def test_batch_route_says_when_it_ran_on_the_cpu():
+    settings = Settings()
+
+    class Resting(main.Service):
+        def inspect_many(self, images, request=None, limit=5.0, stock=None):
+            return main.on_cpu(main.Service(settings, FakeRecogniser(True), FakeFinder(0.9), BANDS), images, limit, stock)
+
+    api = TestClient(main.create_app(Resting(settings), settings))
+    reply = api.post("/api/inspect-batch", files=[("photos", ("a.jpg", jpeg(), "image/jpeg"))]).json()
+    assert reply["fallback"] is True and reply["results"][0]["decision"] == quality.REJECT
+    normal, _ = client()
+    assert normal.post("/api/inspect-batch", files=[("photos", ("a.jpg", jpeg(), "image/jpeg"))]).json()["fallback"] is False
+
+
 def test_page_tags_styles_and_scripts_so_updates_always_load():
     api, _ = client()
     page = api.get("/")

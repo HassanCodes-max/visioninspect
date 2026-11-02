@@ -105,6 +105,17 @@ class Service:
         return answer
 
 
+def on_cpu(service, images, limit=batch.DEFAULT_LIMIT, stock=None):
+    """The check when the shared GPU refuses it. The trained model still decides listed products on the CPU;
+    other items need the GPU explainer, so they wait for it in REVIEW."""
+    answer = Service.inspect_many(service, images, None, limit, stock)
+    for result in answer["results"]:
+        if result["reason"] == "not_supported":
+            result["reason"] = "ai_resting"
+    answer["fallback"] = True
+    return answer
+
+
 def read_photo(data, settings):
     Image.MAX_IMAGE_PIXELS = settings.max_pixels
     try:
@@ -182,7 +193,7 @@ def create_app(service=None, settings=None):
         try:
             checked = service.inspect_many(images, request, limit, stock if stock > 0 else None) if images else {"results": [], "analysis": None}
             found = iter(checked["results"])
-            return {"results": [slot or next(found) for slot in slots], "analysis": checked["analysis"]}
+            return {"results": [slot or next(found) for slot in slots], "analysis": checked["analysis"], "fallback": checked.get("fallback", False)}
         except HTTPException:
             raise
         except Exception as error:
