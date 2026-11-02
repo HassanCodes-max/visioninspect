@@ -1,0 +1,54 @@
+{
+  "new_products": {
+    "all": {
+      "balanced": 0.6434390712246394,
+      "caught": 0.6805907172995781,
+      "false_alarm": 0.3937125748502994,
+      "images": 5042
+    },
+    "visa": {
+      "balanced": 0.6441666666666667,
+      "caught": 0.59,
+      "false_alarm": 0.30166666666666664,
+      "images": 2400
+    },
+    "mvtec": {
+      "balanced": 0.6523771367521367,
+      "caught": 0.7735042735042735,
+      "false_alarm": 0.46875,
+      "images": 2642
+    },
+    "phones": {
+      "balanced": 0.701642819289878,
+      "caught": 0.8738738738738738,
+      "false_alarm": 0.47058823529411764,
+      "images": 213
+    }
+  },
+  "known_products": {
+    "all": {
+      "balanced": 0.9167594675854693,
+      "caught": 0.9300758213984835,
+      "false_alarm": 0.09655688622754488,
+      "images": 2523
+    },
+    "visa": {
+      "balanced": 0.885,
+      "caught": 0.8916666666666667,
+      "false_alarm": 0.1216666666666667,
+      "images": 1200
+    },
+    "mvtec": {
+      "balanced": 0.946624324124139,
+      "caught": 0.969335604770017,
+      "false_alarm": 0.07608695652173914,
+      "images": 1323
+    },
+    "phones": {
+      "balanced": 0.5588235294117647,
+      "caught": 1.0,
+      "false_alarm": 0.8823529411764706,
+      "images": 71
+    }
+  }
+}

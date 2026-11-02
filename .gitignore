@@ -1,0 +1,10 @@
+__pycache__/
+.pytest_cache/
+*.onnx
+*.wav
+*.flac
+*.ogg
+*.opus
+
+# The trained model is 333 MB, over GitHub's 100 MB limit. It is hosted on the Hugging Face Space.
+visioninspect/backend/models/known_model.pt

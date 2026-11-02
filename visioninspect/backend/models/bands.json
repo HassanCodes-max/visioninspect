@@ -1,0 +1,20 @@
+{
+  "bands": {
+    "low": 0.20906849205493927,
+    "high": 0.47937020659446716,
+    "pass_good_share": 0.9487394957983193,
+    "reject_defect_share": 0.9498886414253898,
+    "review_defect_share": 0.7361702127659574
+  },
+  "tested": {
+    "images": 2323,
+    "automatic": 0.8988377098579423,
+    "correct": 0.9492337164750958,
+    "missed": 0.05611775528978841,
+    "wrongly_rejected": 0.03640776699029126,
+    "review": 0.10116229014205769,
+    "pass_good_share": 0.9487394957983193,
+    "reject_defect_share": 0.9498886414253898,
+    "review_defect_share": 0.7361702127659574
+  }
+}

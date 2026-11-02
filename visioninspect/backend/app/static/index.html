@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VisionInspect AI: one photo, a clear inspection result</title>
+  <meta name="description" content="Upload one product photo. A fine-tuned Vision Transformer gives PASS, REVIEW or REJECT, outlines the defect and explains how to fix it.">
+  <meta name="theme-color" content="#06070d">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' data:; style-src 'self'; font-src 'self' data:; img-src 'self' data: blob:; base-uri 'none'; form-action 'none'">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%2306070d' stroke='%23eef0ff' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%238b7bff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/fonts.css">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <canvas id="fluid" class="fluid" aria-hidden="true"></canvas>
+  <div class="fluid-veil" aria-hidden="true"></div>
+  <div class="progress" aria-hidden="true"><span id="progress"></span></div>
+  <header class="top">
+    <a class="brand" href="#start"><span class="eye" aria-hidden="true"></span><span data-text="brand"></span></a>
+    <nav class="links" id="links">
+      <a href="#inspect" data-nav="inspect" data-text="navInspect"></a>
+      <a href="#report" data-nav="report" data-text="navReport"></a>
+      <a href="#supported" data-nav="products" data-text="navProducts"></a>
+      <a href="#guide" data-nav="guide" data-text="navAccuracy"></a>
+    </nav>
+    <a id="accountLink" class="account-link loading" href="#account" data-nav="account">
+      <span id="avatar" class="avatar" aria-hidden="true"></span>
+      <span id="accountText" data-text="authSignIn"></span>
+    </a>
+    <button id="language" class="ghost" type="button" lang="ur" dir="rtl">اردو</button>
+    <button id="menu" class="menu-toggle" type="button" aria-expanded="false" aria-controls="links" data-label="menuLabel"><span></span><span></span><span></span></button>
+  </header>
+
+  <main id="start">
+    <div class="view" data-view="inspect">
+      <section class="hero single">
+        <p class="kicker" data-text="kicker"></p>
+        <h1 id="heroTitle" data-text="title"></h1>
+        <p class="lead" data-text="lead"></p>
+        <div class="hero-actions">
+          <a class="cta" href="#inspect"><span data-text="heroStart"></span><span class="arrow" aria-hidden="true">&#8594;</span></a>
+          <button class="cta alt" type="button" data-sample="candle" data-text="heroDemo"></button>
+        </div>
+      </section>
+
+      <section id="inspect" class="bench" aria-labelledby="inspectTitle">
+        <div class="section-head" data-reveal>
+          <h2 id="inspectTitle" data-text="inspectTitle"></h2>
+          <div class="samples">
+            <span data-text="samplesLabel"></span>
+            <button class="chip" type="button" data-sample="chewinggum" data-text="sampleGum"></button>
+            <button class="chip" type="button" data-sample="candle" data-text="sampleCandle"></button>
+          </div>
+        </div>
+
+        <div class="lot-fields" data-reveal>
+          <label class="field">
+            <input id="group" type="text" maxlength="60" autocomplete="off" data-hint="groupHint" placeholder=" ">
+            <span data-text="groupLabel"></span>
+          </label>
+          <label class="field">
+            <input id="inspector" type="text" maxlength="40" autocomplete="off" data-hint="userHint" placeholder=" ">
+            <span data-text="userLabel"></span>
+          </label>
+          <label class="field">
+            <input id="stock" type="number" min="1" step="1" inputmode="numeric" data-hint="stockHint" placeholder=" ">
+            <span data-text="stockLabel"></span>
+          </label>
+          <label class="field">
+            <input id="limit" type="number" min="0" max="100" step="0.5" value="5" inputmode="decimal" placeholder=" ">
+            <span data-text="limitLabel"></span>
+          </label>
+        </div>
+
+        <div class="drop big" id="drop" tabindex="0" role="button" aria-labelledby="dropTitle" data-reveal>
+          <input id="file" type="file" accept="image/*" multiple hidden>
+          <span class="drop-icon" aria-hidden="true"></span>
+          <strong id="dropTitle" data-text="dropTitle"></strong>
+          <p class="drop-hint" data-text="dropHint"></p>
+        </div>
+
+        <div id="working" class="working" aria-live="polite" hidden>
+          <div class="working-head">
+            <p id="workingText"></p>
+            <p id="workingNumber" class="mono"></p>
+          </div>
+          <div class="bar"><span id="workingBar"></span></div>
+        </div>
+
+        <p id="problem" class="problem" role="alert" hidden></p>
+
+        <section id="spotlight" class="spotlight" aria-live="polite" hidden>
+          <div class="spot-photo">
+            <img id="spotImage" alt="">
+            <canvas id="spotMark"></canvas>
+            <span class="scan-beam" aria-hidden="true"></span>
+          </div>
+          <div class="spot-side">
+            <div class="spot-head">
+              <span id="spotBadge" class="verdict-pill"></span>
+              <span id="spotCount" class="spot-name"></span>
+            </div>
+            <div>
+              <h3 id="spotTitle" class="spot-title"></h3>
+              <p id="spotName" class="spot-name"></p>
+            </div>
+            <p id="spotStep" class="spot-step"></p>
+            <div id="spotBody" class="spot-body">
+              <p id="spotWhy" class="muted"></p>
+              <div id="spotGauges" class="spot-gauges">
+                <div class="gauge">
+                  <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="gauge-track" cx="60" cy="60" r="52"></circle><circle id="spotRing" class="gauge-fill" cx="60" cy="60" r="52"></circle></svg>
+                  <div class="gauge-text"><strong id="spotArea"></strong><span data-text="gaugeLabel"></span></div>
+                </div>
+                <div class="severity">
+                  <span data-text="detailSeverity"></span>
+                  <div id="spotMeter" class="sev-meter"><i></i><i></i><i></i></div>
+                  <strong id="spotSeverity"></strong>
+                  <span id="spotSize" class="spot-size"></span>
+                </div>
+              </div>
+              <div id="spotFixBox" class="spot-fix">
+                <p id="spotFault" class="fault"></p>
+                <p id="spotWhere" class="muted"></p>
+                <h4 data-text="detailFix"></h4>
+                <p id="spotFix"></p>
+                <p id="spotFixNote" class="muted small"></p>
+              </div>
+              <p id="spotTested" class="spot-name"></p>
+            </div>
+            <div class="spot-actions">
+              <button id="spotPrev" class="ghost" type="button" data-text="spotPrev"></button>
+              <button id="spotNext" class="ghost" type="button" data-text="spotNext"></button>
+              <button id="spotOpen" class="ghost" type="button" data-text="spotOpen"></button>
+            </div>
+          </div>
+        </section>
+
+        <div id="skeletons" class="rank-grid skeletons" aria-hidden="true" hidden></div>
+
+        <div id="results" class="results" hidden>
+          <h2 id="printTitle" class="print-title"></h2>
+          <div class="tally" id="tally"></div>
+          <section id="analysis" class="analysis" aria-labelledby="analysisTitle" hidden>
+            <h3 id="analysisTitle" data-text="analysisTitle"></h3>
+            <p id="analysisHead" class="analysis-head"></p>
+            <p id="analysisRange" class="muted"></p>
+            <p id="analysisStock"></p>
+            <p id="analysisHow"></p>
+            <p id="analysisAdvice" class="lot-advice"></p>
+            <div id="analysisPareto" class="pareto"></div>
+            <div id="analysisAi" class="analysis-ai" hidden>
+              <div><h4 data-text="aiCauses"></h4><ul id="analysisCauses"></ul></div>
+              <div><h4 data-text="aiActions"></h4><ul id="analysisActions"></ul></div>
+              <p class="muted small" data-text="aiNote"></p>
+            </div>
+          </section>
+          <div class="result-actions">
+            <div class="filters" id="filters"></div>
+            <div class="result-actions-end">
+              <button id="csv" class="ghost" type="button" data-text="csv"></button>
+              <button id="print" class="ghost" type="button" data-text="print"></button>
+              <button id="clear" class="ghost clear" type="button" data-text="clear"></button>
+            </div>
+          </div>
+          <div id="grid" class="rank-grid"></div>
+          <section id="findings" class="findings" hidden>
+            <h3 data-text="findingsTitle"></h3>
+            <div class="report-wrap"><table class="report-table findings-table" id="findingsTable"></table></div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <div class="view" data-view="report" hidden>
+      <section id="report" class="report" hidden>
+        <div class="section-head" data-reveal>
+          <h2 data-text="rptTitle"></h2>
+          <div class="result-actions-end">
+            <button id="reportSave" class="ghost" type="button" data-text="rptSave"></button>
+            <button id="reportPrint" class="ghost" type="button" data-text="rptPrint"></button>
+            <button id="reportClear" class="ghost clear" type="button" data-text="rptClear"></button>
+          </div>
+        </div>
+        <h2 id="reportStamp" class="print-title"></h2>
+        <p class="muted" data-text="rptHint" data-reveal></p>
+        <div id="reportUsers" class="pareto report-users"></div>
+        <div class="report-wrap" data-reveal><table class="report-table" id="reportTable"></table></div>
+      </section>
+
+      <section id="history" class="history" hidden>
+        <div class="section-head" data-reveal>
+          <h2 data-text="historyTitle"></h2>
+          <button id="forget" class="ghost" type="button" data-text="forget"></button>
+        </div>
+        <p class="muted" data-text="historyHint"></p>
+        <div id="historyList" class="history-list"></div>
+      </section>
+
+      <section id="reportEmpty" class="empty">
+        <div class="empty-art" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <h2 data-text="emptyTitle"></h2>
+        <p class="muted" data-text="emptyBody"></p>
+        <a class="cta" href="#inspect"><span data-text="heroStart"></span><span class="arrow" aria-hidden="true">&#8594;</span></a>
+      </section>
+    </div>
+
+    <div class="view" data-view="products" hidden>
+      <section id="supported" class="how">
+        <div class="section-head" data-reveal><h2 data-text="productsTitle"></h2></div>
+        <p class="lead" data-text="productsLead" data-reveal></p>
+        <div class="product-list" id="productList">
+          <span class="chip skeleton-chip"></span><span class="chip skeleton-chip"></span><span class="chip skeleton-chip"></span>
+          <span class="chip skeleton-chip"></span><span class="chip skeleton-chip"></span><span class="chip skeleton-chip"></span>
+          <span class="chip skeleton-chip"></span><span class="chip skeleton-chip"></span><span class="chip skeleton-chip"></span>
+        </div>
+      </section>
+    </div>
+
+    <div class="view" data-view="guide" hidden>
+      <section id="guide" class="limits">
+        <div class="section-head" data-reveal><h2 data-text="guideTitle"></h2></div>
+        <div class="limit-bars guide-cards">
+          <article class="limit-card" data-reveal><span class="card-icon icon-what" aria-hidden="true"></span><h3 data-text="guideWhat"></h3><p data-text="guideWhatBody"></p></article>
+          <article class="limit-card" data-reveal><span class="card-icon icon-where" aria-hidden="true"></span><h3 data-text="guideWhere"></h3><p data-text="guideWhereBody"></p></article>
+          <article class="limit-card" data-reveal><span class="card-icon icon-fix" aria-hidden="true"></span><h3 data-text="guideFix"></h3><p data-text="guideFixBody"></p></article>
+          <article class="limit-card" data-reveal><span class="card-icon icon-report" aria-hidden="true"></span><h3 data-text="guideReport"></h3><p data-text="guideReportBody"></p></article>
+        </div>
+        <details class="trust" data-reveal>
+          <summary><span data-text="trustTitle"></span><span class="chevron" aria-hidden="true"></span></summary>
+          <div class="trust-inner"><p class="trust-body" data-text="trustBody"></p></div>
+        </details>
+      </section>
+    </div>
+
+    <div class="view" data-view="account" hidden>
+      <section id="account" class="auth">
+        <div class="auth-card">
+          <div id="authTabs" class="auth-tabs" role="tablist">
+            <button id="tabIn" role="tab" type="button" aria-selected="true" data-text="authSignIn"></button>
+            <button id="tabUp" role="tab" type="button" aria-selected="false" data-text="authSignUp"></button>
+            <span class="tab-ink" aria-hidden="true"></span>
+          </div>
+          <div class="auth-panes">
+            <div id="paneIn" class="auth-pane" role="tabpanel">
+              <span class="auth-mark" aria-hidden="true"><span class="eye big-eye"></span></span>
+              <h2 data-text="authInTitle"></h2>
+              <p class="muted" data-text="authInBody"></p>
+              <button id="signIn" class="cta wide" type="button"><span class="spinner" aria-hidden="true"></span><span id="signInText" data-text="authInButton"></span></button>
+              <p class="muted small" data-text="authNote"></p>
+              <button id="toUp" class="text-link" type="button" data-text="authNoAccount"></button>
+            </div>
+            <div id="paneUp" class="auth-pane" role="tabpanel" hidden>
+              <h2 data-text="authUpTitle"></h2>
+              <p class="muted" data-text="authUpBody"></p>
+              <ol class="auth-steps">
+                <li><span>1</span><p data-text="authStep1"></p></li>
+                <li><span>2</span><p data-text="authStep2"></p></li>
+                <li><span>3</span><p data-text="authStep3"></p></li>
+              </ol>
+              <a class="cta wide" href="https://huggingface.co/join" target="_blank" rel="noopener"><span data-text="authUpButton"></span><span class="arrow" aria-hidden="true">&#8599;</span></a>
+              <button id="toIn" class="text-link" type="button" data-text="authHave"></button>
+            </div>
+            <div id="paneMe" class="auth-pane" role="tabpanel" hidden>
+              <span id="meAvatar" class="avatar huge" aria-hidden="true"></span>
+              <h2 id="meTitle"></h2>
+              <p id="meUser" class="muted"></p>
+              <p class="muted" data-text="authMeBody"></p>
+              <div class="auth-actions">
+                <a class="cta" href="#inspect"><span data-text="heroStart"></span><span class="arrow" aria-hidden="true">&#8594;</span></a>
+                <a id="signOut" class="cta alt" href="/logout?_target_url=%2F%3Fsignedout%3D1" data-text="authSignOut"></a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="foot" data-reveal>
+    <p data-text="footPrivacy"></p>
+    <p data-text="footCredit"></p>
+    <p class="foot-links">
+      <a href="https://github.com/facebookresearch/dinov2">DINOv2</a>
+      <a href="https://github.com/amazon-science/spot-diff">VisA</a>
+      <a href="https://www.mvtec.com/company/research/datasets/mvtec-ad">MVTec AD</a>
+      <a href="/static/NOTICE.txt">Licences</a>
+    </p>
+  </footer>
+
+  <dialog id="detail" class="detail" aria-labelledby="detailTitle">
+    <div class="detail-body">
+      <header>
+        <div>
+          <p class="verdict-pill" id="detailBadge"></p>
+          <h3 id="detailTitle"></h3>
+        </div>
+        <button id="detailClose" class="ghost" type="button" data-text="close"></button>
+      </header>
+      <div class="compare" id="compare" dir="ltr">
+        <img id="compareBase" alt="">
+        <div class="compare-top" id="compareTop"><canvas id="compareHeat"></canvas></div>
+        <span class="compare-line" id="compareLine"></span>
+        <input id="compareRange" type="range" min="0" max="100" value="55" data-label="compareLabel">
+        <span class="compare-tag left" data-text="compareMarked"></span>
+        <span class="compare-tag right" data-text="comparePhoto"></span>
+      </div>
+      <div class="detail-side">
+        <p id="detailWhy"></p>
+        <p id="detailSize" hidden></p>
+        <div id="detailAdvice" class="advice" hidden>
+          <h4 id="detailDefect"></h4>
+          <p id="detailWhere" class="muted"></p>
+          <p class="advice-label" data-text="detailFix"></p>
+          <p id="detailFix"></p>
+          <p id="detailFixNote" class="muted small"></p>
+        </div>
+        <dl>
+          <div><dt data-text="detailProduct"></dt><dd id="detailProduct"></dd></div>
+          <div><dt data-text="detailAffected"></dt><dd id="detailAffected" class="mono"></dd></div>
+          <div><dt data-text="detailSeverity"></dt><dd id="detailSeverity"></dd></div>
+          <div><dt data-text="detailRegions"></dt><dd id="detailRegions" class="mono"></dd></div>
+          <div><dt data-text="detailTested"></dt><dd id="detailTested" class="mono"></dd></div>
+        </dl>
+        <p class="muted small" id="detailVersion"></p>
+      </div>
+    </div>
+  </dialog>
+
+  <button id="toTop" class="to-top" type="button" data-label="toTop">&#8593;</button>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="/static/text.js"></script>
+  <script src="/static/app.js"></script>
+  <script src="/static/motion.js"></script>
+  <script src="/static/fluid.js"></script>
+</body>
+</html>

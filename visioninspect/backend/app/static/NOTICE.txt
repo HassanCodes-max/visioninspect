@@ -1,0 +1,21 @@
+VisionInspect uses the work of others under these licences.
+
+DINOv2 by Meta. Apache License 2.0.
+https://github.com/facebookresearch/dinov2
+
+SAM 2 by Meta. Apache License 2.0.
+https://huggingface.co/facebook/sam2.1-hiera-small
+
+Qwen3-VL by Alibaba. Apache License 2.0.
+https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct
+
+VisA by Amazon. CC BY 4.0. Used for training, and the example photos come from it. Photos were resized.
+https://github.com/amazon-science/spot-diff
+
+MVTec Anomaly Detection dataset by MVTec Software GmbH. CC BY-NC-SA 4.0. Used for training.
+https://www.mvtec.com/company/research/datasets/mvtec-ad
+
+The trained model therefore carries a non-commercial condition, and is shared under CC BY-NC-SA 4.0.
+A commercial version would need retraining on data that allows it.
+
+Fonts are licensed under the SIL Open Font License 1.1.
