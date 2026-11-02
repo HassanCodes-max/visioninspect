@@ -228,6 +228,21 @@ def test_batch_route_says_when_it_ran_on_the_cpu():
     assert normal.post("/api/inspect-batch", files=[("photos", ("a.jpg", jpeg(), "image/jpeg"))]).json()["fallback"] is False
 
 
+def test_batch_route_skips_the_gpu_when_the_page_asks():
+    settings = Settings()
+
+    class Shared(main.Service):
+        def inspect_many(self, images, request=None, limit=5.0, stock=None):
+            raise AssertionError("the GPU should not be asked")
+
+        def on_cpu(self, images, limit=5.0, stock=None):
+            return main.on_cpu(main.Service(settings, FakeRecogniser(True), FakeFinder(0.9), BANDS), images, limit, stock)
+
+    api = TestClient(main.create_app(Shared(settings), settings))
+    reply = api.post("/api/inspect-batch", data={"cpu": "1"}, files=[("photos", ("a.jpg", jpeg(), "image/jpeg"))]).json()
+    assert reply["fallback"] is True and reply["results"][0]["decision"] == quality.REJECT
+
+
 def test_page_tags_styles_and_scripts_so_updates_always_load():
     api, _ = client()
     page = api.get("/")

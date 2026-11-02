@@ -1,6 +1,6 @@
 # VisionInspect AI
 
-Visual quality inspection from one photo, built with free tools only. Live at <https://huggingface.co/spaces/HASSANALI0987654/visioninspect>.
+Visual quality inspection from one photo, built with free tools only. Live at <https://hassanali0987654-visioninspect.hf.space> (also on its [Hugging Face page](https://huggingface.co/spaces/HASSANALI0987654/visioninspect)).
 
 Upload one product photo, or a batch of up to 30. A scanning view shows each check, then a result panel shows the outlined fault, a damage gauge and a severity meter. Each photo gets PASS, REVIEW or REJECT, an outline of the damaged area, how much of the photo it covers, how serious it is and how to fix it. Batches get a defect rate with a 95% range, the most common defects, a stock estimate and a hold or accept decision. A report builds up for each person and product, and can be saved as a spreadsheet or PDF. Visitors can sign in with their Hugging Face account to put their name on reports.
 

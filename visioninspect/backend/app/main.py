@@ -179,8 +179,10 @@ def create_app(service=None, settings=None):
             raise HTTPException(500, "The check could not finish. Please try again.") from error
 
     @app.post("/api/inspect-batch")
-    def inspect_batch(photos: list[UploadFile], request: Request, limit: float = Form(batch.DEFAULT_LIMIT), stock: int = Form(0)):
-        """Checks a batch together, so it uses one GPU run. A bad photo is reported without stopping the others."""
+    def inspect_batch(photos: list[UploadFile], request: Request, limit: float = Form(batch.DEFAULT_LIMIT), stock: int = Form(0),
+                      cpu: bool = Form(False)):
+        """Checks a batch together, so it uses one GPU run. A bad photo is reported without stopping the others.
+        cpu: the page knows the GPU refused this visitor recently, so the check goes straight to the CPU."""
         if len(photos) > settings.max_batch:
             raise HTTPException(413, f"Send at most {settings.max_batch} photos at a time.")
         images, slots = [], []
@@ -195,7 +197,13 @@ def create_app(service=None, settings=None):
                 slots.append({"error": "tooLarge" if error.status_code == 413 else "notImage"})
         limit = min(max(limit, 0.0), 100.0)
         try:
-            checked = service.inspect_many(images, request, limit, stock if stock > 0 else None) if images else {"results": [], "analysis": None}
+            stock = stock if stock > 0 else None
+            if not images:
+                checked = {"results": [], "analysis": None}
+            elif cpu and hasattr(service, "on_cpu"):
+                checked = service.on_cpu(images, limit, stock)
+            else:
+                checked = service.inspect_many(images, request, limit, stock)
             found = iter(checked["results"])
             return {"results": [slot or next(found) for slot in slots], "analysis": checked["analysis"], "fallback": checked.get("fallback", False)}
         except HTTPException:

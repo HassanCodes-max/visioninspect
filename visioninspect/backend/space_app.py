@@ -48,6 +48,9 @@ class SharedGpuService(Service):
             log.warning("GPU refused a check (%s), so it runs on the CPU", error.title)
             return on_cpu(cpu, images, limit, stock)
 
+    def on_cpu(self, images, limit=batch.DEFAULT_LIMIT, stock=None):
+        return on_cpu(cpu, images, limit, stock)
+
     def inspect(self, image, request=None):
         return self.inspect_many([image], request)["results"][0]
 

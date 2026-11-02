@@ -2,6 +2,10 @@ const MAX_PHOTOS = 30;
 const MAX_SIDE = 1600;
 const HEAT_FLOOR = 0.2;
 const PASS_WAIT = 1500;
+// After the free GPU refuses a check, the page skips it for this long. Asking again would only make
+// Hugging Face's page show its upgrade window on every upload.
+const GPU_REST_KEY = "visioninspect-gpu-rest";
+const GPU_REST_MS = 60 * 60 * 1000;
 const ERRORS = { 413: "tooLarge", 415: "notImage", 429: "busy" };
 const HISTORY_KEY = "visioninspect-history";
 const DECISIONS = ["PASS", "REVIEW", "REJECT"];
@@ -88,6 +92,10 @@ async function shrink(blob) {
   return { small, aspect: canvas.width / canvas.height };
 }
 
+function gpuResting() {
+  return Date.now() < Number(localStorage.getItem(GPU_REST_KEY) || 0);
+}
+
 function visitorPass() {
   if (window.parent === window) return Promise.resolve({});
   return new Promise((done) => {
@@ -122,9 +130,12 @@ async function inspectAll(ready) {
   for (const photo of ready) form.append("photos", photo.small, "photo.jpg");
   if (Number($("limit").value) >= 0 && $("limit").value !== "") form.append("limit", $("limit").value);
   if (Number($("stock").value) > 0) form.append("stock", Math.round(Number($("stock").value)));
-  const response = await fetch("/api/inspect-batch", { method: "POST", body: form, headers: await visitorPass() });
+  const resting = gpuResting();
+  if (resting) form.append("cpu", "1");
+  const response = await fetch("/api/inspect-batch", { method: "POST", body: form, headers: resting ? {} : await visitorPass() });
   if (!response.ok) throw new Error(ERRORS[response.status] || "failed");
   const { results, analysis, fallback } = await response.json();
+  if (fallback && !resting) localStorage.setItem(GPU_REST_KEY, String(Date.now() + GPU_REST_MS));
   state.analysis = analysis;
   state.fallback = Boolean(fallback);
   return results.map((result, index) => ({ ...result, name: ready[index].name, small: ready[index].small, aspect: ready[index].aspect }));
