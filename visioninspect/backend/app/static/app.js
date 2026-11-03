@@ -6,6 +6,8 @@ const PASS_WAIT = 1500;
 // Hugging Face's page show its upgrade window on every upload.
 const GPU_REST_KEY = "visioninspect-gpu-rest";
 const GPU_REST_MS = 60 * 60 * 1000;
+// On the CPU, the AI explains this many flagged photos per batch after their decisions are shown, worst first.
+const LATER_LIMIT = 8;
 const ERRORS = { 413: "tooLarge", 415: "notImage", 429: "busy" };
 const HISTORY_KEY = "visioninspect-history";
 const DECISIONS = ["PASS", "REVIEW", "REJECT"];
@@ -149,12 +151,13 @@ function clearResults() {
   state.spot = null;
   state.fallback = false;
   $("problem").hidden = true;
-  $("notice").hidden = true;
   renderResults();
 }
 
 function addResult(result, small) {
-  state.results.unshift({ ...result, url: URL.createObjectURL(small) });
+  const kept = { ...result, url: URL.createObjectURL(small) };
+  state.results.unshift(kept);
+  return kept;
 }
 
 function setWorking(text, done, total) {
@@ -184,14 +187,12 @@ async function runPhotos(photos) {
         if (result.error) {
           trouble = `${result.name}: ${say(result.error)}`;
         } else {
-          addResult(result, result.small);
-          recordResult(result, group, user);
+          recordResult(addResult(result, result.small), group, user);
         }
       }
     }
     stopScan();
     state.fresh = true;
-    $("notice").hidden = !state.fallback;
     renderResults();
     renderReport();
   } catch (error) {
@@ -204,6 +205,58 @@ async function runPhotos(photos) {
   state.running = false;
   if (trouble) showProblem(trouble);
   if (state.results.length) saveHistory();
+  explainLater(state.batchKey);
+}
+
+async function explainLater(key) {
+  const waiting = ranked().filter((r) => r.pending).slice(0, LATER_LIMIT);
+  const skipped = state.results.filter((r) => r.pending && !waiting.includes(r));
+  skipped.forEach((r) => { r.pending = false; });
+  if (skipped.length) renderResults();
+  for (const result of waiting) {
+    try {
+      const form = new FormData();
+      form.append("photo", result.small, "photo.jpg");
+      if (result.regions.length) form.append("region", JSON.stringify(result.regions[0]));
+      form.append("flagged", result.decision === "REJECT" ? "1" : "0");
+      const response = await fetch("/api/explain", { method: "POST", body: form });
+      if (state.batchKey !== key) return;
+      if (response.ok) addExplanation(result, await response.json());
+    } catch (error) {
+      console.error(error);
+    }
+    if (state.batchKey !== key) return;
+    result.pending = false;
+    renderResults();
+  }
+  if (waiting.length) refreshAnalysis(key);
+}
+
+function addExplanation(result, { explanation, outline }) {
+  if (!explanation) return;
+  result.explanation = explanation;
+  const marked = !result.regions.length && Boolean(explanation.region);
+  if (marked) {
+    result.regions = [explanation.region];
+    result.affected_percent = outline ? outline.area_percent : explanation.region.area_percent;
+    if (outline) result.outline = outline.mask;
+  }
+  recordDetails(result, marked);
+  renderReport();
+}
+
+async function refreshAnalysis(key) {
+  if (!state.analysis) return;
+  const results = state.results.map(({ decision, affected_percent, explanation }) => ({ decision, affected_percent, explanation }));
+  try {
+    const response = await fetch("/api/analyse", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ results, limit: state.analysis.limit, stock: state.analysis.stock?.stock || 0 }) });
+    if (!response.ok || state.batchKey !== key) return;
+    state.analysis = await response.json();
+    renderAnalysis();
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 function notify(key) {
@@ -309,19 +362,23 @@ function sizeLine(result) {
 }
 
 function defectName(result) {
+  if (result.pending) return say("defectPending");
   return result.explanation?.defect || say("defectUnnamed");
 }
 
 function fixText(result) {
   if (result.decision === "PASS") return "";
+  if (result.pending) return say("fixPending");
   return result.explanation?.fix || say("fixGeneral");
 }
 
 function fixNote(result) {
+  if (result.pending) return "";
   return result.explanation?.fix ? say("fixNote") : say("fixGeneralNote");
 }
 
 function severityText(result) {
+  if (result.pending) return say("ratingPending");
   const severity = result.explanation?.severity;
   return severity ? say(`sev_${severity}`) : say("notRated");
 }
@@ -444,6 +501,8 @@ function showSpotlight(result, animate = true) {
     $("spotFault").textContent = defectName(result);
     $("spotWhere").textContent = result.explanation?.where || "";
     $("spotFix").textContent = fixText(result);
+    $("spotFix").classList.toggle("pending", Boolean(result.pending));
+    $("spotFault").classList.toggle("pending", Boolean(result.pending));
     $("spotFixNote").textContent = fixNote(result);
     $("spotSeverity").textContent = severityText(result);
     $("spotSize").textContent = result.regions.length ? sizeWord(area) : "";
@@ -619,7 +678,7 @@ function renderResults() {
     card.append(photo, meta, why);
     if (result.decision !== "PASS") {
       const fix = document.createElement("p");
-      fix.className = "card-fix";
+      fix.className = `card-fix${result.pending ? " pending" : ""}`;
       fix.textContent = say("cardFix", { fix: fixText(result) });
       card.append(fix);
     }
@@ -732,11 +791,26 @@ function readReport() {
 function recordResult(result, group, user) {
   const name = group || result.explanation?.item || result.product || say("notRecognised");
   const key = (user ? `${user}|${name}` : name).toLowerCase();
+  result.reportKey = key;
   const report = readReport();
   const entry = report[key] || { name, user, photos: 0, PASS: 0, REVIEW: 0, REJECT: 0, defects: {}, severity: {} };
   entry.photos += 1;
   entry[result.decision] += 1;
-  if (result.decision === "REJECT" && result.regions.length) {
+  addDetails(entry, result, true);
+  report[key] = entry;
+  localStorage.setItem(REPORT_KEY, JSON.stringify(report));
+}
+
+function recordDetails(result, withArea) {
+  const report = readReport();
+  const entry = report[result.reportKey];
+  if (!entry) return;
+  addDetails(entry, result, withArea);
+  localStorage.setItem(REPORT_KEY, JSON.stringify(report));
+}
+
+function addDetails(entry, result, withArea) {
+  if (withArea && result.decision === "REJECT" && result.regions.length) {
     entry.area = (entry.area || 0) + result.affected_percent;
     entry.marked = (entry.marked || 0) + 1;
   }
@@ -748,8 +822,6 @@ function recordResult(result, group, user) {
     if (found.fix && !entry.fixes[defect]) entry.fixes[defect] = found.fix;
   }
   if (found?.severity) entry.severity[found.severity] = (entry.severity[found.severity] || 0) + 1;
-  report[key] = entry;
-  localStorage.setItem(REPORT_KEY, JSON.stringify(report));
 }
 
 function mostCommon(counts) {

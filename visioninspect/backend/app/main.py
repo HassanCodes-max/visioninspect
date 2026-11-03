@@ -51,21 +51,33 @@ class Service:
             self.ready()
 
     def inspect(self, image, request=None):
+        """With the backup AI, only the quick decision is made here. The page asks for the explanation afterwards."""
+        later = getattr(self.explainer, "backup", False)
         with self.lock:
             self.ready()
             match = self.recogniser.check(image)
             if not match.supported:
+                if later:
+                    decision, reason = quality.decide_by_score(self.explainer.score(image))
+                    return self.result(decision, reason, match, None, pending=decision != quality.PASS and reason != "not_supported")
                 explanation = self.explainer.explain(image) if self.explainer else None
-                decision, reason = quality.decide_by_ai(explanation, getattr(self.explainer, "backup", False))
+                decision, reason = quality.decide_by_ai(explanation)
                 return self.result(decision, reason, match, None, explanation, self.outline(image, explanation))
             found = self.finder.inspect(image)
             decision, reason = quality.decide(found.score, True, self.bands)
             marked = quality.find_regions(found.heat, self.settings.region_threshold)
-            explanation = None
-            if self.explainer and decision != quality.PASS:
+            explanation = outline = None
+            if self.explainer and decision != quality.PASS and not later:
                 explanation = self.explainer.explain(image, marked[0] if marked else None, decision == quality.REJECT)
-            outline = None if marked else self.outline(image, explanation)
-        return self.result(decision, reason, match, found, explanation, outline)
+                outline = None if marked else self.outline(image, explanation)
+        return self.result(decision, reason, match, found, explanation, outline, pending=later and decision != quality.PASS)
+
+    def explain_one(self, image, region=None, flagged=False):
+        """The explanation for one photo, asked for after its decision is already on screen."""
+        with self.lock:
+            explanation = self.explainer.explain(image, region, flagged) if self.explainer else None
+            outline = None if region else self.outline(image, explanation)
+        return {"explanation": explanation, "outline": outline}
 
     def outline(self, image, explanation):
         region = explanation["region"] if explanation else None
@@ -77,19 +89,19 @@ class Service:
 
     def analyse(self, results, limit, stock):
         stats = batch.analyse(results, limit, stock)
-        if self.explainer and stats["rejected"]:
+        if self.explainer and not getattr(self.explainer, "backup", False) and stats["rejected"]:
             try:
                 stats.update(batch.parse_advice(self.explainer.advise(batch.facts_for_ai(stats))))
             except Exception:
                 log.exception("batch advice failed")
         return stats
 
-    def result(self, decision, reason, match, found, explanation=None, outline=None):
+    def result(self, decision, reason, match, found, explanation=None, outline=None, pending=False):
         names = self.settings.supported
         answer = {"decision": decision, "reason": reason, "supported": match.supported,
                   "product": names.get(match.product) if match.supported else None,
                   "model_version": self.settings.model_version, "tested_share": self.bands.evidence(decision) if match.supported else quality.AI_EVIDENCE.get(decision),
-                  "score": None, "regions": [], "affected_percent": 0.0, "heat": None, "explanation": explanation, "outline": None}
+                  "score": None, "regions": [], "affected_percent": 0.0, "heat": None, "explanation": explanation, "outline": None, "pending": pending}
         if found is not None:
             regions = quality.find_regions(found.heat, self.settings.region_threshold)
             answer.update(score=round(found.score, 4), regions=regions,
@@ -107,9 +119,7 @@ class Service:
 
 def on_cpu(service, images, limit=batch.DEFAULT_LIMIT, stock=None):
     """The check when the shared GPU refuses it. The trained model still decides listed products on the CPU,
-    and a smaller backup AI explains the first few flagged photos. Items it cannot reach wait in REVIEW."""
-    if hasattr(service.explainer, "start"):
-        service.explainer.start()
+    and a smaller backup AI scores other items. If the backup AI cannot load, those items wait in REVIEW."""
     answer = Service.inspect_many(service, images, None, limit, stock)
     for result in answer["results"]:
         if result["reason"] == "not_supported":
@@ -128,6 +138,27 @@ def read_photo(data, settings):
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as error:
         raise HTTPException(415, "This file could not be opened as a photo.") from error
     return ImageOps.exif_transpose(image).convert("RGB")
+
+
+def read_region(text):
+    """A marked area sent back by the page, checked so it can only be four numbers between 0 and 1."""
+    if not text:
+        return None
+    try:
+        region = {key: float(json.loads(text)[key]) for key in ("x", "y", "width", "height")}
+    except (ValueError, TypeError, KeyError) as error:
+        raise HTTPException(422, "The marked area could not be read.") from error
+    if not all(0.0 <= value <= 1.0 for value in region.values()):
+        raise HTTPException(422, "The marked area could not be read.")
+    return region
+
+
+def tidy_result(item):
+    """Only the fields the statistics use, with the AI's words cut short."""
+    found = item.get("explanation") or {}
+    decision = item["decision"] if item.get("decision") in (quality.PASS, quality.REVIEW, quality.REJECT) else quality.REVIEW
+    explanation = {"defect": str(found.get("defect") or "")[:80], "severity": str(found.get("severity") or "")[:20]} if found else None
+    return {"decision": decision, "affected_percent": min(max(float(item.get("affected_percent") or 0.0), 0.0), 100.0), "explanation": explanation}
 
 
 def create_app(service=None, settings=None):
@@ -160,6 +191,31 @@ def create_app(service=None, settings=None):
         if not user.get("preferred_username"):
             return {"signed_in": False}
         return {"signed_in": True, "name": user.get("name") or user["preferred_username"], "username": user["preferred_username"]}
+
+    @app.post("/api/explain")
+    def explain_later(photo: UploadFile, region: str = Form(""), flagged: bool = Form(False)):
+        """The name, place and fix of a fault, for a photo whose decision is already shown. Used when checks run on the CPU."""
+        data = photo.file.read(settings.max_upload_bytes + 1)
+        if len(data) > settings.max_upload_bytes:
+            raise HTTPException(413, "This photo is too large. The limit is 15 MB.")
+        try:
+            return service.explain_one(read_photo(data, settings), read_region(region), flagged)
+        except HTTPException:
+            raise
+        except Exception as error:
+            log.exception("explanation failed")
+            raise HTTPException(500, "The explanation could not finish.") from error
+
+    @app.post("/api/analyse")
+    def analyse(body: dict):
+        """Batch statistics again, once the late explanations have named the faults. Computed in code only."""
+        try:
+            results = [tidy_result(item) for item in body.get("results", [])[:settings.max_batch]]
+            limit = min(max(float(body.get("limit", batch.DEFAULT_LIMIT)), 0.0), 100.0)
+            stock = int(body.get("stock") or 0)
+        except (TypeError, ValueError, AttributeError) as error:
+            raise HTTPException(422, "These results could not be read.") from error
+        return batch.analyse(results, limit, stock if stock > 0 else None)
 
     @app.get("/api/products")
     def products():

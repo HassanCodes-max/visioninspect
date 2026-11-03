@@ -171,24 +171,46 @@ def test_api_refuses_a_large_file():
     assert post(TestClient(main.create_app(service, settings))).status_code == 413
 
 
-def test_backup_ai_explains_only_a_few_photos_per_batch():
+def test_backup_ai_decides_by_score_and_leaves_the_explanation_for_later(monkeypatch):
+    monkeypatch.setattr(quality, "BACKUP_BANDS", (0.3, 0.7))
+    helper = FakeScorer("defect", [0.95, 0.5, 0.02])
+    checker = main.Service(Settings(), FakeRecogniser(False), FakeFinder(0.9), BANDS, explain.BackupExplainer(explain.OnDemand(lambda: helper)))
+    results = main.on_cpu(checker, [Image.new("RGB", (64, 64))] * 3)["results"]
+    assert [(r["decision"], r["pending"]) for r in results] == [(quality.REJECT, True), (quality.REVIEW, True), (quality.PASS, False)]
+    assert results[0]["tested_share"] == quality.BACKUP_EVIDENCE.get(quality.REJECT) and helper.calls == 0
+
+
+def test_listed_product_on_the_cpu_is_explained_later():
+    helper = FakeScorer("defect", [])
+    checker = main.Service(Settings(), FakeRecogniser(True), FakeFinder(0.9), BANDS, explain.BackupExplainer(explain.OnDemand(lambda: helper)))
+    result = main.on_cpu(checker, [Image.new("RGB", (64, 64))])["results"][0]
+    assert result["decision"] == quality.REJECT and result["pending"] and result["explanation"] is None and helper.calls == 0
+    later = checker.explain_one(Image.new("RGB", (64, 64)), result["regions"][0], True)
+    assert later["explanation"]["defect"] == "tear" and helper.asked == (result["regions"][0], True)
+
+
+def test_explain_route_reads_the_marked_area_safely():
+    settings = Settings()
     helper = FakeExplainer("defect")
-    backup = explain.BackupExplainer(explain.OnDemand(lambda: helper), per_batch=2)
-    checker = main.Service(Settings(), FakeRecogniser(False), FakeFinder(0.9), BANDS, backup)
-    answer = main.on_cpu(checker, [Image.new("RGB", (64, 64))] * 3)
-    assert [r["reason"] for r in answer["results"]] == ["ai_defect", "ai_defect", "ai_resting"] and helper.calls == 2
-    assert answer["results"][0]["tested_share"] == quality.BACKUP_EVIDENCE.get(quality.REJECT)
-    main.on_cpu(checker, [Image.new("RGB", (64, 64))])
-    assert helper.calls == 3
+    service = main.Service(settings, FakeRecogniser(False), FakeFinder(0.9), BANDS, helper)
+    api = TestClient(main.create_app(service, settings))
+    photo = [("photo", ("a.jpg", jpeg(), "image/jpeg"))]
+    reply = api.post("/api/explain", data={"flagged": "1"}, files=photo).json()
+    assert reply["explanation"]["fix"] == "Patch it." and helper.asked == (None, True)
+    area = '{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4}'
+    assert api.post("/api/explain", data={"region": area}, files=photo).status_code == 200 and helper.asked[0]["width"] == 0.3
+    assert api.post("/api/explain", data={"region": '{"x": 5}'}, files=photo).status_code == 422
 
 
-def test_backup_ai_good_answer_waits_for_a_person():
-    backup = explain.BackupExplainer(explain.OnDemand(lambda: FakeExplainer("good")))
-    checker = main.Service(Settings(), FakeRecogniser(False), FakeFinder(0.1), BANDS, backup)
-    answer = main.on_cpu(checker, [Image.new("RGB", (64, 64))])
-    result = answer["results"][0]
-    assert (result["decision"], result["reason"]) == (quality.REVIEW, "ai_backup_good")
-    assert answer["analysis"]["review"] == 1 and answer["analysis"]["passed"] == 0
+def test_analyse_route_counts_late_explanations():
+    settings = Settings()
+    api = TestClient(main.create_app(main.Service(settings, FakeRecogniser(True), FakeFinder(0.9), BANDS), settings))
+    results = [{"decision": "REJECT", "affected_percent": 4, "explanation": {"defect": "Crack", "severity": "major"}},
+               {"decision": "REJECT", "affected_percent": 2, "explanation": {"defect": "crack", "severity": "minor"}},
+               {"decision": "PASS", "affected_percent": 0, "explanation": None}]
+    stats = api.post("/api/analyse", json={"results": results, "limit": 5}).json()
+    assert stats["rejected"] == 2 and stats["pareto"][0] == {"defect": "crack", "count": 2, "share": 100, "running_share": 100}
+    assert stats["mean_area"] == 3.0 and api.post("/api/analyse", json={"results": [{"affected_percent": "x"}]}).status_code == 422
 
 
 def test_backup_ai_that_cannot_load_leaves_the_check_working():
@@ -320,6 +342,15 @@ class FakeSegmenter:
     def outline(self, image, region):
         self.calls += 1
         return {"mask": "ab", "area_percent": 3.5}
+
+
+class FakeScorer(FakeExplainer):
+    def __init__(self, verdict, scores):
+        super().__init__(verdict)
+        self.scores = iter(scores)
+
+    def score(self, image):
+        return next(self.scores)
 
 
 def service(score, supported, verdict, segmenter=None):
@@ -535,3 +566,9 @@ def test_bands_leave_out_low_products_and_report_real_shares():
     assert result["tested"]["images"] == 18
     assert result["bands"]["low"] == 0.2 and result["bands"]["high"] == 0.8
     assert result["tested"]["correct"] == 1
+
+
+def test_box_numbers_are_not_shown_as_the_place():
+    numbers = explain.parse_reply('{"verdict": "defect", "defect": "burn", "where": "inside the box [594, 781, 688, 875]"}')
+    words = explain.parse_reply('{"verdict": "defect", "defect": "burn", "where": "bottom right candle"}')
+    assert numbers["where"] == "" and words["where"] == "bottom right candle"

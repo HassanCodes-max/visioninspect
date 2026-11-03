@@ -8,7 +8,7 @@ Upload one product photo, or a batch of up to 30. A scanning view shows each che
 
 - **Listed products:** a fine-tuned DINOv2 ViT-B scores the photo and maps the defect. It reached 91.7% balanced accuracy on 25 products, and on 2,323 test photos 95% of its automatic decisions were correct.
 - **Other items:** Qwen3-VL-8B names the fault, rates its severity and suggests a fix. SAM 2 outlines the damage. A "good" answer from the AI is a PASS, shown with how often that was right in testing (70%), because the AI misses small defects.
-- **When the free GPU is used up:** the check runs on the CPU instead of failing. Listed products keep full results. Other items get a smaller backup AI, Qwen3-VL-2B. Its "defect" answers reject, with a name and a fix. It caught only 4 of 32 defects in testing, so its "good" answers go to REVIEW ([results](visioninspect/results/RESULTS_BACKUP_AI.md)).
+- **When the free GPU is used up:** the check runs on the CPU instead of failing. Listed products keep full results. Other items are decided by the defect score of a smaller AI, Qwen3-VL-2B, in about 2 s per photo: on 80 fresh photos, 91% of its automatic decisions were right and 14% went to REVIEW. The fault's name and fix fill in a few seconds later ([results](visioninspect/results/RESULTS_BACKUP_AI.md)).
 - **Statistics:** every number is computed in code. The AI only suggests likely causes and next steps.
 
 See the [project plan](visioninspect/docs/PROJECT_PLAN.md), [architecture](visioninspect/docs/ARCHITECTURE.md), [model selection](visioninspect/docs/MODEL_SELECTION.md) and the [results](visioninspect/results/).

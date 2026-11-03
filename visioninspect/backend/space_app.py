@@ -3,6 +3,7 @@ import spaces  # must be imported before torch
 
 import json
 import logging
+import threading
 
 import gradio as gr
 from gradio.context import LocalContext
@@ -25,6 +26,8 @@ local = Service(settings, recogniser, finder, bands, Explainer.load("cuda"), Seg
 backup_ai = BackupExplainer(OnDemand(lambda: Explainer.load("cpu", explain.CPU_MODEL, explain.CPU_SIDE)))
 backup_outline = BackupSegmenter(OnDemand(lambda: Segmenter.load("cpu")))
 cpu = Service(settings, Recogniser.load(settings), DefectFinder.load(settings), bands, backup_ai, backup_outline)
+# Load the backup AI in the background now, so the first visitor after a restart does not wait for it.
+threading.Thread(target=backup_ai.source.get, daemon=True).start()
 log = logging.getLogger("visioninspect")
 
 
@@ -50,6 +53,9 @@ class SharedGpuService(Service):
 
     def on_cpu(self, images, limit=batch.DEFAULT_LIMIT, stock=None):
         return on_cpu(cpu, images, limit, stock)
+
+    def explain_one(self, image, region=None, flagged=False):
+        return Service.explain_one(cpu, image, region, flagged)
 
     def inspect(self, image, request=None):
         return self.inspect_many([image], request)["results"][0]
