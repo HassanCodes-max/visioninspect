@@ -596,6 +596,7 @@ html[lang="ur"] h3 { font-weight: 400; }
 .report-table th, .report-table td { padding: 10px 10px; border-bottom: 1px solid var(--line); text-align: start; white-space: nowrap; }
 .report-table th { color: var(--muted); font-weight: 600; background: var(--panel); }
 .report-table tr:last-child td { border-bottom: none; }
+.report-table tr.total td { border-top: 2px solid var(--warm); font-weight: 700; background: rgba(139, 123, 255, .08); }
 .spotlight { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 22px; margin-top: 24px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(160deg, rgba(139, 123, 255, .07), transparent 45%), var(--panel); scroll-margin-top: 96px; }
 .spotlight.revealed { animation: rise .6s var(--ease); }
 .spot-photo { position: relative; align-self: start; overflow: hidden; border-radius: 14px; background: #000; }

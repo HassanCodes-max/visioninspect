@@ -241,7 +241,12 @@ function addExplanation(result, { explanation, outline }) {
     result.affected_percent = outline ? outline.area_percent : explanation.region.area_percent;
     if (outline) result.outline = outline.mask;
   }
-  recordDetails(result, marked);
+  if (result.reportUnnamed && explanation.item) {
+    unrecord(result);
+    recordResult(result, result.reportGroup, result.reportUser);
+  } else {
+    recordDetails(result, marked);
+  }
   renderReport();
 }
 
@@ -791,13 +796,28 @@ function readReport() {
 function recordResult(result, group, user) {
   const name = group || result.explanation?.item || result.product || say("notRecognised");
   const key = (user ? `${user}|${name}` : name).toLowerCase();
-  result.reportKey = key;
+  Object.assign(result, { reportKey: key, reportGroup: group, reportUser: user, reportUnnamed: !group && !result.product && !result.explanation?.item });
   const report = readReport();
   const entry = report[key] || { name, user, photos: 0, PASS: 0, REVIEW: 0, REJECT: 0, defects: {}, severity: {} };
   entry.photos += 1;
   entry[result.decision] += 1;
   addDetails(entry, result, true);
   report[key] = entry;
+  localStorage.setItem(REPORT_KEY, JSON.stringify(report));
+}
+
+function unrecord(result) {
+  const report = readReport();
+  const entry = report[result.reportKey];
+  if (!entry) return;
+  entry.photos -= 1;
+  entry[result.decision] -= 1;
+  if (result.decision === "REJECT" && result.reportArea) {
+    entry.area -= result.reportArea;
+    entry.marked -= 1;
+  }
+  if (entry.photos > 0) report[result.reportKey] = entry;
+  else delete report[result.reportKey];
   localStorage.setItem(REPORT_KEY, JSON.stringify(report));
 }
 
@@ -811,6 +831,7 @@ function recordDetails(result, withArea) {
 
 function addDetails(entry, result, withArea) {
   if (withArea && result.decision === "REJECT" && result.regions.length) {
+    result.reportArea = result.affected_percent;
     entry.area = (entry.area || 0) + result.affected_percent;
     entry.marked = (entry.marked || 0) + 1;
   }
@@ -841,8 +862,21 @@ function userName(entry) {
   return entry.user || say("rptNoUser");
 }
 
+function combined(entries) {
+  const total = { name: say("rptAll"), user: say("rptEveryone"), photos: 0, PASS: 0, REVIEW: 0, REJECT: 0, defects: {}, severity: {}, fixes: {}, area: 0, marked: 0 };
+  for (const entry of entries) {
+    for (const key of ["photos", ...DECISIONS, "area", "marked"]) total[key] += entry[key] || 0;
+    for (const field of ["defects", "severity"]) {
+      for (const [name, count] of Object.entries(entry[field] || {})) total[field][name] = (total[field][name] || 0) + count;
+    }
+    total.fixes = { ...entry.fixes, ...total.fixes };
+  }
+  return total;
+}
+
 function reportRows() {
   const entries = Object.values(readReport()).sort((a, b) => (a.user || "").localeCompare(b.user || "") || b.photos - a.photos);
+  if (entries.length > 1) entries.push(combined(entries));
   return entries.map((entry) => {
     const severity = mostCommon(entry.severity);
     const common = mostCommon(entry.defects);
@@ -896,7 +930,8 @@ function renderReport() {
   $("report").hidden = !rows.length;
   updateEmpty();
   renderUsers();
-  $("reportTable").replaceChildren(tableRow(reportHead(), "th"), ...rows.map((row) => tableRow(row, "td")));
+  const last = rows.length > 1 ? rows.length - 1 : -1;
+  $("reportTable").replaceChildren(tableRow(reportHead(), "th"), ...rows.map((row, index) => tableRow(row, "td", index === last ? "total" : "")));
 }
 
 function safeCell(value) {
